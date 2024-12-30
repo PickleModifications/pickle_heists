@@ -8,15 +8,6 @@ type Locale = {
 export type Config = {
     loaded?: boolean;
     locale: Locale;
-    defaultPlayerImage: string;
-    permissions: {
-        bountyHunter: boolean;
-        bailPlacement: boolean;
-        bailManage: boolean;
-    };
-    bailOfficers: {
-        maximumBailAmount: number;
-    };
     currency: {
         name: string;
         locale: string;
@@ -37,15 +28,6 @@ interface ConfigProviderProps {
 export const ConfigProvider: React.FC<ConfigProviderProps> = ({ children }) => {
     const [config, setConfig] = useState<Config>({
         locale: {},
-        defaultPlayerImage: "unknown_player.png",
-        bailOfficers: {
-            maximumBailAmount: 0
-        },
-        permissions: {
-            bountyHunter: false,
-            bailPlacement: false,
-            bailManage: false
-        },
         currency: {
             name: "USD",
             locale: "en-US"
@@ -53,19 +35,10 @@ export const ConfigProvider: React.FC<ConfigProviderProps> = ({ children }) => {
     });
 
     useNuiEvent("setConfig", function(config) {
+        console.log("Setting config", config);
         setConfig(config);
-      });
-
-    useNuiEvent("updatePermissions", function(data) {
-        setConfig((prev) => ({
-            ...prev,
-            permissions: {
-                ...prev.permissions,
-                ...data.permissions
-            }
-        }));
     });
-    
+
     return (
         <ConfigContext.Provider value={{ config, setConfig }}>
             {children}

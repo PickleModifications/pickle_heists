@@ -2,13 +2,18 @@ import '@mantine/core/styles.css';
 
 import { MantineProvider } from '@mantine/core';
 import { ConfigProvider } from './providers/config/Config';
+import { useState } from 'react';
+import LobbyApp from './components/lobby/Lobby';
 
-function LobbyApp() {
-  return (
-    <div>
-      <h1>Lobby</h1>
-    </div>
-  );
+export type Player = {
+  source: number;
+  identifier: string;
+  name: string;
+}
+
+export type Position = {
+  x: number;
+  y: number;
 }
 
 export default function App() {

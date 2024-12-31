@@ -22,10 +22,12 @@
 
 .playerTargetMenu {
     scale: 1.0;
+    z-index: 100;
     pointer-events: all;
 }
 
 .playerTargetMenuHide {
+    z-index: 100;
     scale: 0.0;
 }
 

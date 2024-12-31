@@ -7,6 +7,7 @@ type Locale = {
 
 export type Config = {
     loaded?: boolean;
+    source: number;
     locale: Locale;
     currency: {
         name: string;
@@ -27,6 +28,7 @@ interface ConfigProviderProps {
 
 export const ConfigProvider: React.FC<ConfigProviderProps> = ({ children }) => {
     const [config, setConfig] = useState<Config>({
+        source: 0,
         locale: {},
         currency: {
             name: "USD",

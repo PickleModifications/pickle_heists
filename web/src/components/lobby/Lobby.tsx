@@ -10,18 +10,18 @@ import { useNuiEvent } from "../../providers/nui/useNui";
 import { fetchNui } from "../../providers/nui/fetchNui";
 
 export type LobbyPlayer = Player & {
+    position?: Position;
 }
 
 export type Lobby = {
     id: number;
     isLeader?: boolean;
     heistInfo: HeistInfo;
-    players: LobbyPlayer[];
+    players: Record<number, LobbyPlayer>;
     vehicles: Vehicle[];
+    playerPercentages?: Record<number, number>;
 }
-export type LobbyPlayerTargets = {
-    position: Position;
-};
+
 export type Vehicle = {
     name: string;
     description: string;
@@ -57,7 +57,7 @@ function ColorSelect({onSelect}: {onSelect?: (color: string) => void}) {
         "#16A34A",
         "#0284C7",
         "#A855F7",
-        "#57534E",
+        "#ffffff",
         "#000000"
     ];
     const colorSize = 30;
@@ -68,7 +68,16 @@ function ColorSelect({onSelect}: {onSelect?: (color: string) => void}) {
             ))}
         </Flex>
     );
+}
 
+function HexToRGB(hex: string) {
+    let r = 0, g = 0, b = 0;
+    if (hex.length == 7) {
+        r = parseInt(hex.substring(1, 3), 16);
+        g = parseInt(hex.substring(3, 5), 16);
+        b = parseInt(hex.substring(5, 7), 16);
+    }
+    return {r, g, b};
 }
 
 export default function LobbyApp() {
@@ -95,6 +104,7 @@ export default function LobbyApp() {
     const [currentSection, setCurrentSection] = useState<string>("main");
     const [showSection, setShowSection] = useState<boolean>(true);
     const sectionTransition = (section: string) => {
+        fetchNui("setSection", section);
         setSelectedPlayerTarget(null);
         setShowSection(false);
         setTimeout(() => {
@@ -102,15 +112,30 @@ export default function LobbyApp() {
             setCurrentSection(section);
         }, 500);
     }
-    useNuiEvent("setLobby", (lobbyData: Lobby) => {
-        if (lobby == null) {
+    // Main
+    const [playerPercentages, setPlayerPercentages] = useState<Record<number, number>>(lobby?.playerPercentages || {});
+    useNuiEvent("setLobby", (data) => {
+        if (data.lobby == null) {
             setCurrentSection("main");
             setShowSection(true);
         }
-        setLobby(lobbyData);
+        if (data.lobby && data.lobby.players) {
+            for (const key in data.lobby.players) {
+                if (data.lobby.players[key].position) {
+                    let width = window.innerWidth;
+                    let height = window.innerHeight;
+                    let offsetWidth = 30;
+                    let offsetHeight = 30;
+                    data.lobby.players[key].position.x = ((width - offsetWidth) * data.lobby.players[key].position.x);
+                    data.lobby.players[key].position.y = ((height - offsetHeight) * data.lobby.players[key].position.y);
+                }
+            }
+        }
+        if (data.lobby && data.lobby.playerPercentages) {
+            setPlayerPercentages(data.lobby.playerPercentages);
+        }
+        setLobby(data.lobby);
     });
-    // Main
-    const [playerPercentages, setPlayerPercentages] = useState<Record<number, number>>({});
     const updatePlayerPercentage = (source: number, percentage: number) => {
         let maxPercentage = 100 - Object.entries(playerPercentages).filter(([key, value]) => parseInt(key) !== source).reduce((acc, [key, val]) => acc + val, 0);
         setPlayerPercentages((prev) => ({
@@ -118,14 +143,15 @@ export default function LobbyApp() {
             [source]: percentage > maxPercentage ? maxPercentage : percentage
         }));
     }
-    const [lobbyPlayerTargets, setLobbyPlayerTargets] = useState<Record<number, LobbyPlayerTargets>>({});
+    const [requirePercentUpdate, setRequirePercentUpdate] = useState<boolean>(false);
+    if (requirePercentUpdate) {
+        fetchNui("updatePlayerPercentages", Object.entries(playerPercentages).map(([key, value]) => ({source: parseInt(key), percentage: value})));
+        setRequirePercentUpdate(false);
+    }
     const [selectedPlayerTarget, setSelectedPlayerTarget] = useState<number | null>(null);
-    useNuiEvent("setLobbyPlayerTargets", (playerTargets: Record<number, LobbyPlayerTargets>) => {
-        setLobbyPlayerTargets(playerTargets);
-    });
     // Vehicle Selection
     const [selectedVehicle, setSelectedVehicle] = useState<number | null>(null);
-    const [currentVehicle, setCurrentVehicle] = useState<number>(1);
+    const [currentVehicle, setCurrentVehicle] = useState<number>(0);
     if (!lobby) return null;
     // for (const player of lobby.players) {
     //     if (!lobbyPlayerTargets[player.source]) {
@@ -140,20 +166,11 @@ export default function LobbyApp() {
     //         }));
     //     }
     // }
-    for (const key in lobbyPlayerTargets) {
-        if (!lobby.players.find((player) => player.source === parseInt(key))) {
-            setLobbyPlayerTargets((prev) => {
-                const copy = { ...prev };
-                delete copy[key];
-                return copy;
-            });
-            if (selectedPlayerTarget === parseInt(key)) {
-                setSelectedPlayerTarget(null);
-            }
-        }
+    if (selectedPlayerTarget != null && !lobby.players[selectedPlayerTarget]) {
+        setSelectedPlayerTarget(null);
     }
     for (const key in playerPercentages) {
-        if (!lobby.players.find((player) => player.source === parseInt(key))) {
+        if (!Object.values(lobby.players).find((player) => player.source === parseInt(key))) {
             setPlayerPercentages((prev) => {
                 const copy = { ...prev };
                 delete copy[key];
@@ -171,6 +188,7 @@ export default function LobbyApp() {
         setCurrentVehicle(newIndex);
         fetchNui("setVehicle", newIndex + 1);
     }
+
     return (
         <div style={{position: "relative", width: "100%", height: "100vh", overflow: "hidden", opacity: showSection ? 1 : 0, transition: "opacity 0.5s"}}>
             {(currentSection == "main") ? (
@@ -209,10 +227,9 @@ export default function LobbyApp() {
                         </div>
                     </Flex>
                     {
-                        Object.entries(lobbyPlayerTargets).map(function ([key, player]) {
-                            let playerObject = lobby.players.find((p) => p.source === parseInt(key));
-                            let playerPercentage = playerPercentages[parseInt(key)] || 0;
-                            if (!playerObject) return null;
+                        Object.entries(lobby.players).map(function ([key, player]) {
+                            let playerPercentage = playerPercentages[player.source] || 0;
+                            if (!player.position) return;
                             return (
                                 <div key={key} className={classes.playerTargetContainer} style={{top: player.position.y, left: player.position.x}}>
                                     <Flex gap={10}>
@@ -222,17 +239,17 @@ export default function LobbyApp() {
                                             </svg>
                                         </div>
                                         <Flex className={(parseInt(key) == selectedPlayerTarget ? classes.playerTargetMenu : classes.playerTargetMenuHide)} direction={"column"} style={{color: "white", background: "rgba(0, 0, 0, 0.75)", borderRadius: "5px", padding: 10, display: "flex", transition: "scale 0.2s"}}>
-                                            <Text pl={5} pr={5} fz={"xl"} fw={"bold"}>{translate("heist_player", playerObject.name, playerObject.source)}</Text>
+                                            <Text pl={5} pr={5} fz={"xl"} fw={"bold"}>{translate("heist_player", player.name, player.source)}</Text>
                                             <Text pl={5} pr={5}>{translate("heist_set_cut", playerPercentage)}</Text>
-                                            {(lobby.isLeader) ? (
+                                            {(lobby.isLeader && player.source != config.source) ? (
                                                 <>
                                                     <Slider color="gray.7" pl={14} pr={14} value={playerPercentage} onChangeEnd={() => {
-                                                        fetchNui("updatePlayerPercentages", playerPercentages);
+                                                        setRequirePercentUpdate(true);
                                                     }} onChange={(value) => {
-                                                        updatePlayerPercentage(parseInt(key), value);
+                                                        updatePlayerPercentage(player.source, value);
                                                     }} min={0} max={100} step={1}/>
-                                                    <Text onClick={() => fetchNui("kickPlayer", playerObject.source)} className={classes.playerTargetOption}>{translate("heist_kick")}</Text>
-                                                    <Text onClick={() => fetchNui("promotePlayer", playerObject.source)} className={classes.playerTargetOption}>{translate("heist_promote")}</Text>
+                                                    <Text onClick={() => fetchNui("kickPlayer", player.source)} className={classes.playerTargetOption}>{translate("heist_kick")}</Text>
+                                                    <Text onClick={() => fetchNui("promotePlayer", player.source)} className={classes.playerTargetOption}>{translate("heist_promote")}</Text>
                                                 </>
                                             ) : null}
                                         </Flex>
@@ -259,7 +276,7 @@ export default function LobbyApp() {
                         <Flex justify={"space-between"} w={"100%"} align={"center"} style={{gap: 20}}>
                             <Text c={"gray.3"} fz={"h3"} maw={1000}>{lobby.vehicles[currentVehicle].description}</Text>
                             <Flex direction={"column"} align={"center"} style={{gap: 10}}>
-                                <ColorSelect/>
+                                <ColorSelect onSelect={(color) => {fetchNui("setVehicleColor", HexToRGB(color))}}/>
                                 <Flex align={"center"} style={{gap: 10}}>
                                     <ArrowLeft onClick={() => setNextVehicle(false)}/>
                                     <Button onClick={() => {

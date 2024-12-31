@@ -3,6 +3,6 @@ html {
 }
 
 :root, #root, body {
-  /* background: none !important; */
+  background: none !important;
   /* background-image: url("assets/heist_background.png") !important; */
 }

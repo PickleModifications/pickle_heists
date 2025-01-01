@@ -10,6 +10,8 @@ import { useNuiEvent } from "../../providers/nui/useNui";
 import { fetchNui } from "../../providers/nui/fetchNui";
 
 export type LobbyPlayer = Player & {
+    slot: number;
+    percentage?: number;
     position?: Position;
 }
 
@@ -17,9 +19,8 @@ export type Lobby = {
     id: number;
     isLeader?: boolean;
     heistInfo: HeistInfo;
-    players: Record<number, LobbyPlayer>;
+    players: Record<string, LobbyPlayer>;
     vehicles: Vehicle[];
-    playerPercentages?: Record<number, number>;
 }
 
 export type Vehicle = {
@@ -113,42 +114,52 @@ export default function LobbyApp() {
         }, 500);
     }
     // Main
-    const [playerPercentages, setPlayerPercentages] = useState<Record<number, number>>(lobby?.playerPercentages || {});
     useNuiEvent("setLobby", (data) => {
         if (data.lobby == null) {
             setCurrentSection("main");
             setShowSection(true);
         }
         if (data.lobby && data.lobby.players) {
-            for (const key in data.lobby.players) {
-                if (data.lobby.players[key].position) {
+            Object.entries(data.lobby.players).forEach(([source, player]) => {
+                console.log(source, player)
+                const lobbyPlayer = player as LobbyPlayer;
+                if (lobbyPlayer.position) {
                     let width = window.innerWidth;
                     let height = window.innerHeight;
                     let offsetWidth = 30;
                     let offsetHeight = 30;
-                    data.lobby.players[key].position.x = ((width - offsetWidth) * data.lobby.players[key].position.x);
-                    data.lobby.players[key].position.y = ((height - offsetHeight) * data.lobby.players[key].position.y);
+                    data.lobby.players[source].position.x = ((width - offsetWidth) * data.lobby.players[source].position.x);
+                    data.lobby.players[source].position.y = ((height - offsetHeight) * data.lobby.players[source].position.y);
                 }
-            }
-        }
-        if (data.lobby && data.lobby.playerPercentages) {
-            setPlayerPercentages(data.lobby.playerPercentages);
+            });
         }
         setLobby(data.lobby);
     });
-    const updatePlayerPercentage = (source: number, percentage: number) => {
-        let maxPercentage = 100 - Object.entries(playerPercentages).filter(([key, value]) => parseInt(key) !== source).reduce((acc, [key, val]) => acc + val, 0);
-        setPlayerPercentages((prev) => ({
-            ...prev,
-            [source]: percentage > maxPercentage ? maxPercentage : percentage
-        }));
+    const updatePlayerPercentage = (source: string, percentage: number) => {
+        if (!lobby) return;
+        let maxPercentage = 100;
+        let totalPercentage = 0;
+        Object.entries(lobby.players).forEach(([playerSrc, player]) => {
+            if (playerSrc != source) {
+                totalPercentage += lobby.players[playerSrc].percentage || 0;
+            }
+        });
+        let remainingPercentage = maxPercentage - totalPercentage;
+        if (percentage > remainingPercentage) {
+            percentage = remainingPercentage;
+        }
+        if (percentage < 0) {
+            percentage = 0;
+        }
+        lobby.players[source].percentage = percentage;
+        setLobby((prev) => prev ? ({...prev, players: {...prev.players}}) : prev);
     }
     const [requirePercentUpdate, setRequirePercentUpdate] = useState<boolean>(false);
     if (requirePercentUpdate) {
-        fetchNui("updatePlayerPercentages", Object.entries(playerPercentages).map(([key, value]) => ({source: parseInt(key), percentage: value})));
+        fetchNui("updatePlayerPercentages", lobby?.players);
         setRequirePercentUpdate(false);
     }
-    const [selectedPlayerTarget, setSelectedPlayerTarget] = useState<number | null>(null);
+    const [selectedPlayerTarget, setSelectedPlayerTarget] = useState<string | null>(null);
     // Vehicle Selection
     const [selectedVehicle, setSelectedVehicle] = useState<number | null>(null);
     const [currentVehicle, setCurrentVehicle] = useState<number>(0);
@@ -169,15 +180,7 @@ export default function LobbyApp() {
     if (selectedPlayerTarget != null && !lobby.players[selectedPlayerTarget]) {
         setSelectedPlayerTarget(null);
     }
-    for (const key in playerPercentages) {
-        if (!Object.values(lobby.players).find((player) => player.source === parseInt(key))) {
-            setPlayerPercentages((prev) => {
-                const copy = { ...prev };
-                delete copy[key];
-                return copy;
-            });
-        }
-    }
+    // console.log("PLYR STATE:", JSON.stringify(lobby.players));
     const setNextVehicle = (forward: boolean) => {
         let newIndex = currentVehicle + (forward ? 1 : -1);
         if (newIndex < 0) {
@@ -206,17 +209,21 @@ export default function LobbyApp() {
                             <Flex justify={"space-between"} w={"100%"} align={"center"} style={{gap: 20}}>
                                 <Text c={"gray.3"} fz={"h3"} maw={1000}>{lobby.heistInfo.description}</Text>
                                 <Flex direction={"column"} align={"center"} style={{gap: 10}}>
-                                    {(selectedVehicle != null || lobby.vehicles.length < 0) && (
-                                        <Button onClick={() => fetchNui("startHeist", {})} color={"green.7"} size={"xl"} w={300} fz={"h2"}>{translate("heist_start")}</Button>
-                                    )}
-                                    {(lobby.vehicles.length > 0) && (
-                                        (selectedVehicle != null) ? (
-                                            <Button onClick={() => sectionTransition("vehicle")} color={"gray.7"} size={"md"} w={300} fz={"md"}>{translate("heist_vehicle_change")}</Button>
-                                        ) :
-                                        (
-                                            <Button onClick={() => sectionTransition("vehicle")} color={"gray.7"} size={"xl"} w={300} fz={"h2"}>{translate("heist_vehicle_select")}</Button>
-                                        )
-                                    )}
+                                    {(lobby.isLeader) ? (
+                                        <>
+                                            {(selectedVehicle != null || lobby.vehicles.length < 0) && (
+                                                <Button onClick={() => fetchNui("startHeist", {})} color={"green.7"} size={"xl"} w={300} fz={"h2"}>{translate("heist_start")}</Button>
+                                            )}
+                                            {(lobby.vehicles.length > 0) && (
+                                                (selectedVehicle != null) ? (
+                                                    <Button onClick={() => sectionTransition("vehicle")} color={"gray.7"} size={"md"} w={300} fz={"md"}>{translate("heist_vehicle_change")}</Button>
+                                                ) :
+                                                (
+                                                    <Button onClick={() => sectionTransition("vehicle")} color={"gray.7"} size={"xl"} w={300} fz={"h2"}>{translate("heist_vehicle_select")}</Button>
+                                                )
+                                            )}
+                                        </>
+                                    ) : null}
                                     <Button onClick={() => fetchNui("leaveHeist", {})} color={"red.7"} size={"md"} w={300} fz={"md"}>{translate("heist_leave")}</Button>
                                     <Flex style={{gap: 5}}>
                                         <Text fz={"lg"}>{translate("heist_reward")}</Text>
@@ -227,29 +234,33 @@ export default function LobbyApp() {
                         </div>
                     </Flex>
                     {
-                        Object.entries(lobby.players).map(function ([key, player]) {
-                            let playerPercentage = playerPercentages[player.source] || 0;
+                        Object.entries(lobby.players).map(function ([playerSrc, player]) {
+                            let playerPercentage = player.percentage || 0;
                             if (!player.position) return;
                             return (
-                                <div key={key} className={classes.playerTargetContainer} style={{top: player.position.y, left: player.position.x}}>
+                                <div key={playerSrc} className={classes.playerTargetContainer} style={{top: player.position.y, left: player.position.x}}>
                                     <Flex gap={10}>
-                                        <div className={classes.playerTarget} onClick={() => setSelectedPlayerTarget(parseInt(key) === selectedPlayerTarget ? null : parseInt(key))}>
+                                        <div className={classes.playerTarget} onClick={() => setSelectedPlayerTarget(playerSrc === selectedPlayerTarget ? null : playerSrc)}>
                                             <svg style={{position: "absolute", top: "50%", left: "50%", transform: "translate(-45%, -50%)"}} xmlns="http://www.w3.org/2000/svg" fill="white" width="20px" height="20px" viewBox="0 0 16 16">
                                                 <path d="m7 7.88c2.18 0 3.94-1.76 3.94-3.94s-1.76-3.94-3.94-3.94c-2.17 0-3.94 1.76-3.94 3.94 0 2.17 1.77 3.94 3.94 3.94zm1.09 3.24c-.26-.52-.17-1.17.26-1.6l.28-.27c.05-.05.12-.08.18-.12h-4.31c-2.48.01-4.5 2.02-4.5 4.5 0 .12.01.25.03.38h7.95c-.44-.23-.74-.68-.74-1.21v-.4c0-.57.35-1.07.85-1.28zm6.76.7h-.98c-.06-.19-.14-.36-.24-.53l.65-.65c.15-.15.15-.4 0-.55l-.27-.27c-.15-.15-.4-.15-.55 0l-.66.66c-.18-.1-.37-.18-.58-.23v-.86c0-.21-.17-.39-.39-.39h-.39c-.21 0-.39.17-.39.39v.85c-.22.06-.43.15-.63.26l-.54-.54c-.15-.15-.4-.15-.55 0l-.28.27c-.15.15-.15.4 0 .55l.56.56c-.12.21-.21.43-.26.67h-.72c-.22 0-.39.17-.39.39v.39c0 .21.17.39.39.39h.78c.07.23.18.45.31.65l-.53.53c-.15.15-.15.4 0 .55l.27.27c.15.15.4.15.55 0l.59-.59c.2.1.41.17.64.21v.81c0 .21.17.39.39.39h.39c.21 0 .39-.17.39-.39v-.91c.2-.07.38-.16.55-.28l.63.63c.15.15.4.15.55 0l.27-.27c.15-.15.15-.4 0-.55l-.69-.69c.08-.17.15-.35.19-.55h.93c.22 0 .39-.17.39-.39v-.39c.01-.22-.17-.39-.38-.39zm-3.21 1.65c-.54 0-.97-.43-.97-.97s.44-.97.97-.97c.54 0 .97.43.97.97s-.43.97-.97.97z"/>
                                             </svg>
                                         </div>
-                                        <Flex className={(parseInt(key) == selectedPlayerTarget ? classes.playerTargetMenu : classes.playerTargetMenuHide)} direction={"column"} style={{color: "white", background: "rgba(0, 0, 0, 0.75)", borderRadius: "5px", padding: 10, display: "flex", transition: "scale 0.2s"}}>
-                                            <Text pl={5} pr={5} fz={"xl"} fw={"bold"}>{translate("heist_player", player.name, player.source)}</Text>
+                                        <Flex className={(playerSrc == selectedPlayerTarget ? classes.playerTargetMenu : classes.playerTargetMenuHide)} direction={"column"} style={{color: "white", background: "rgba(0, 0, 0, 0.75)", borderRadius: "5px", padding: 10, display: "flex", transition: "scale 0.2s"}}>
+                                            <Text pl={5} pr={5} fz={"xl"} fw={"bold"}>{translate("heist_player", player.name, playerSrc)}</Text>
                                             <Text pl={5} pr={5}>{translate("heist_set_cut", playerPercentage)}</Text>
-                                            {(lobby.isLeader && player.source != config.source) ? (
+                                            {(lobby.isLeader) ? (
                                                 <>
                                                     <Slider color="gray.7" pl={14} pr={14} value={playerPercentage} onChangeEnd={() => {
                                                         setRequirePercentUpdate(true);
                                                     }} onChange={(value) => {
-                                                        updatePlayerPercentage(player.source, value);
+                                                        updatePlayerPercentage(playerSrc, value);
                                                     }} min={0} max={100} step={1}/>
-                                                    <Text onClick={() => fetchNui("kickPlayer", player.source)} className={classes.playerTargetOption}>{translate("heist_kick")}</Text>
-                                                    <Text onClick={() => fetchNui("promotePlayer", player.source)} className={classes.playerTargetOption}>{translate("heist_promote")}</Text>
+                                                    {(parseInt(playerSrc) != config.source) ? (
+                                                        <>
+                                                            <Text onClick={() => fetchNui("kickPlayer", playerSrc)} className={classes.playerTargetOption}>{translate("heist_kick")}</Text>
+                                                            <Text onClick={() => fetchNui("promotePlayer", playerSrc)} className={classes.playerTargetOption}>{translate("heist_promote")}</Text>
+                                                        </>
+                                                    ) : null}
                                                 </>
                                             ) : null}
                                         </Flex>

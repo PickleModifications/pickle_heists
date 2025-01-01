@@ -3,6 +3,7 @@ CAMERA_VALUES.fov = { 10.0, 90.0 }
 CAMERA_VALUES.calculatedFov = CAMERA_VALUES.fov[2]
 CAMERA_VALUES.speed = { zoom = 10.0, x = 8.0, y = 8.0 }
 
+LocalLobbies = {}
 CurrentLobby = nil
 
 local function HideHUD()
@@ -38,17 +39,21 @@ function CameraControls(cam, zoom)
 end
 
 function AddLobbyPlayer(position)
+    if not CurrentLobby or CurrentLobby.playerPositions[position] then return end
     local positionCfg = Config.LobbyScene.playerPositions[position]
     if not positionCfg or not CurrentLobby then return end
     local lobby = Lobbies[CurrentLobby.id]
     if not lobby then return end
     local positionInfo = lobby.players[position]
+    if not positionInfo then return end
+    local player = GetPlayerFromServerId(positionInfo.source)
+    if player == -1 then return end
     local obj = CreateProp(`prop_tennis_ball`, positionCfg.coords, positionCfg.heading, false, false)
     SetEntityVisible(obj, false, false)
     FreezeEntityPosition(obj, true)
     SetEntityCollision(obj, false, false)
     local startCoords = GetOffsetFromEntityInWorldCoords(obj, 0.0, 4.0, -1.0)
-    local ped = ClonePed(GetPlayerPed(GetPlayerFromServerId(positionInfo.source)), false, false, true)
+    local ped = ClonePed(GetPlayerPed(player), false, false, true)
     SetEntityCoords(ped, startCoords)
     SetEntityHeading(ped, positionCfg.heading)
     SetEntityInvincible(ped, true)
@@ -57,23 +62,58 @@ function AddLobbyPlayer(position)
     SetEntityAlpha(ped, 0, false)
     SetTimeout(500, function()
         SetEntityAlpha(ped, 255, false)
-    end)
-    local found, x, y = GetScreenCoordFromWorldCoord(positionCfg.coords.x, positionCfg.coords.y, positionCfg.coords.z)
-    CurrentLobby.players[position] = {
-        source = positionInfo.source,
-        name = positionInfo.name,
-        identifier = positionInfo.identifier,
-        position = {
-            x = x - (positionCfg.interactOffset?.x or 0),
-            y = y - (positionCfg.interactOffset?.y or 0),
+        local found, x, y = GetScreenCoordFromWorldCoord(positionCfg.coords.x, positionCfg.coords.y, positionCfg.coords.z)
+        CurrentLobby.players[positionInfo.source] = {
+            source = positionInfo.source,
+            name = positionInfo.name,
+            identifier = positionInfo.identifier,
+            position = {
+                x = x - (positionCfg.interactOffset?.x or 0),
+                y = y - (positionCfg.interactOffset?.y or 0),
+            },
+            percentage = positionInfo.percentage or 0,
         }
-    }
-    print("Player "..position.." added to lobby")
-    SendNUIMessage({
-        type = "setLobby",
-        lobby = CurrentLobby,
-    })
-    CurrentLobby.playerPositions[position] = { ped = ped }
+        print("Adding player to lobby", json.encode(CurrentLobby.players))
+        SendNUIMessage({
+            type = "setLobby",
+            lobby = CurrentLobby,
+        })
+    end)
+    SetTimeout(3000, function()
+        if CurrentLobby and CurrentLobby.playerPositions[position] then
+            FreezeEntityPosition(ped, true)
+        end
+    end)
+    CurrentLobby.playerPositions[position] = { ped = ped, obj = obj }
+end
+
+function RemoveLobbyPlayer(position, source)
+    if not CurrentLobby or not CurrentLobby.playerPositions[position] then return end
+    local lobby = Lobbies[CurrentLobby.id]
+    if not lobby then return end
+    local ped = CurrentLobby.playerPositions[position].ped
+    if not DoesEntityExist(ped) then return end
+    local positionCfg = Config.LobbyScene.playerPositions[position]
+    local obj = CurrentLobby.playerPositions[position].obj
+    local startCoords = GetOffsetFromEntityInWorldCoords(obj, 0.0, 20.0, -1.0)
+    DeleteEntity(obj)
+    SetEntityInvincible(ped, true)
+    SetBlockingOfNonTemporaryEvents(ped, true)
+    FreezeEntityPosition(ped, false)
+    TaskGoStraightToCoord(ped, startCoords, 1.0, -1, positionCfg.heading + 180.0, 0.0)
+    if not (source == GetPlayerServerId(PlayerId())) then
+        CurrentLobby.playerPositions[position] = nil
+        CurrentLobby.players[source] = nil
+        print("Removing player from lobby", json.encode(CurrentLobby.players))
+        SendNUIMessage({
+            type = "setLobby",
+            lobby = CurrentLobby,
+        })
+    end
+    CreateThread(function()
+        Wait(10000)
+        DeleteEntity(ped)
+    end)
 end
 
 function IsPlayerLobbyLeader(lobbyId)
@@ -86,12 +126,8 @@ function ConvertLobbyPlayers(players, convertType)
     if not convertType or convertType == "source" then
         local newPlayers = {}
         for k,v in pairs(players) do
-            newPlayers[v.source] = {
-                slot = k,
-                source = v.source,
-                name = v.name,
-                identifier = v.identifier,
-            }
+            newPlayers[v.source] = v
+            newPlayers[v.source].slot = k
         end
         return newPlayers
     elseif convertType == "percentage" then
@@ -114,6 +150,7 @@ function GetPlayerLobbySlot(lobbyId, source)
 end
 
 function StartLobbyScene(lobbyId)
+    DoScreenFadeIn(1000)
     local lobby = Lobbies[lobbyId]
     local heistCfg = Config.Heists[lobbyId]
     if CurrentLobby or not lobby or not heistCfg then return end
@@ -139,18 +176,15 @@ function StartLobbyScene(lobbyId)
             reward = heistCfg.reward,
         },
         players = ConvertLobbyPlayers(lobby.players),
-        playerPercentages = ConvertLobbyPlayers(lobby.players, "percentage"),
         playerPositions = {},
         playerTargets = {},
-        vehicles = {
-            { model = `kuruma`, name = "Karin Kuruma", description = "A heavily armored sports car that is perfect for heists. It can take a lot of damage and has plenty of firepower to help you get out of sticky situations.", price = 50000 },
-            { model = `dominator`, name = "Vapid Dominator", description = "A classic muscle car that is fast, powerful, and stylish. It is perfect for making a quick getaway after a heist.", price = 30000 },
-        }
+        vehicles = Config.Heists[lobbyId].vehicles,
     }
     SendNUIMessage({
         type = "setLobby",
         lobby = CurrentLobby,
     })
+    CurrentLobby.playerPercentages = nil
     SetNuiFocus(true, true)
     CreateThread(function()
         local cameraCfg = Config.LobbyScene.camera
@@ -184,7 +218,6 @@ function StartLobbyScene(lobbyId)
         ClearTimecycleModifier("" , 4.2)
         DeleteEntity(obj)
         ClearPedTasksImmediately(PlayerPedId())
-        CurrentLobby = nil
         cameraState = nil
         SendNUIMessage({
             type = "setCameraState",
@@ -204,27 +237,151 @@ function DisplayLobbyVehicle()
     local vehicleInfo = CurrentLobby.vehicles[CurrentLobby.currentVehicle]
     local vehiclePositionCfg = Config.LobbyScene.vehiclePosition
     local vehicle = CreateVeh(vehicleInfo.model, vehiclePositionCfg.coords, vehiclePositionCfg.heading, true, false)
+    if not CurrentLobby.vehicleColor then
+        CurrentLobby.vehicleColor = { r = 0, g = 0, b = 0 }
+    end
+    local color = CurrentLobby.vehicleColor
+    SetVehicleCustomPrimaryColour(vehicle, color.r, color.g, color.b)
+    SetVehicleCustomSecondaryColour(vehicle, color.r, color.g, color.b)
     FreezeEntityPosition(vehicle, true)
     SetEntityCollision(vehicle, false, false)
     CurrentLobby.vehicle = vehicle
-    print("Vehicle added to lobby", vehicle)
 end
 
 function UpdateLobbies(lobbies)
     Lobbies = lobbies
+    for k,v in pairs(LocalLobbies) do 
+        if not lobbies[k] then
+            DeleteInteraction(LocalLobbies[k].interact)
+            LocalLobbies[k] = nil
+        end
+    end
+    for k,v in pairs(lobbies) do
+        if not LocalLobbies[k] then
+            LocalLobbies[k] = {
+                interact = CreateInteraction({
+                    label = Config.Heists[k].label,
+                    coords = Config.Heists[k].enterLocation.coords + vector3(0.0, 0.0, 1.0),
+                }, function()
+                    TriggerServerEvent("pickle_heists:joinLobby", k)
+                end),
+            }
+        end
+    end
+
     -- TODO: Create interacts for lobbies
 end
+
+RegisterNetEvent("pickle_heists:enterLobby", function(position) 
+    DoScreenFadeOut(1000)
+    while not IsScreenFadedOut() do
+        Wait(0)
+    end
+    local positionCfg = Config.LobbyScene.playerPositions[position]
+    SetEntityCoords(PlayerPedId(), positionCfg.coords - vector3(0.0, 0.0, 3.0))
+    SetEntityHeading(PlayerPedId(), positionCfg.heading)
+    TriggerServerEvent("pickle_heists:enterLobby")
+end)
 
 RegisterNetEvent("pickle_heists:joinLobby", function(target, lobbyId, lobby)
     Lobbies[lobbyId] = lobby
     local source = GetPlayerServerId(PlayerId())
-    if target == source and not CurrentLobby then
+    if not CurrentLobby and source == target then
+        local slot = GetPlayerLobbySlot(lobbyId, target)
         StartLobbyScene(lobbyId)
-    else
+    elseif source ~= target then
         local slot = GetPlayerLobbySlot(lobbyId, target)
         if not slot then return end
         AddLobbyPlayer(slot)
     end
+end)
+
+RegisterNetEvent("pickle_heists:leaveLobby", function(target, lobbyId, newLeader)
+    local source = GetPlayerServerId(PlayerId())
+    if source == target then
+        SetNuiFocus(false, false)
+        SendNUIMessage({
+            type = "setLobby",
+            lobby = nil,
+        })
+        CreateThread(function()
+            DoScreenFadeOut(2000)
+            Wait(2050)
+            for k,v in pairs(CurrentLobby.playerPositions or {}) do
+                DeleteEntity(v.ped)
+                DeleteEntity(v.obj)
+            end
+            local enterLocation = Config.Heists[lobbyId].enterLocation
+            SetEntityCoords(PlayerPedId(), enterLocation.coords)
+            SetEntityHeading(PlayerPedId(), enterLocation.heading)
+            FreezeEntityPosition(PlayerPedId(), false)
+            Wait(50)
+            DoScreenFadeIn(1000)
+            CurrentLobby = nil
+        end)
+    end
+    if Lobbies[lobbyId] then
+        local slot = GetPlayerLobbySlot(lobbyId, target)
+        if slot then
+            RemoveLobbyPlayer(slot, Lobbies[lobbyId].players[slot].source)
+            Lobbies[lobbyId].players[slot] = nil
+        end
+        if source ~= target then
+            Lobbies[lobbyId].leader = newLeader
+            CurrentLobby.isLeader = IsPlayerLobbyLeader(lobbyId)
+            SendNUIMessage({
+                type = "setLobby",
+                lobby = CurrentLobby,
+            })
+        end
+    end
+end)
+
+RegisterNetEvent("pickle_heists:promotePlayer", function(lobbyId, newLeader)
+    if CurrentLobby and CurrentLobby.id == lobbyId then
+        Lobbies[lobbyId].leader = newLeader
+        CurrentLobby.isLeader = IsPlayerLobbyLeader(lobbyId)
+        SendNUIMessage({
+            type = "setLobby",
+            lobby = CurrentLobby,
+        })
+    end
+end)
+
+RegisterNetEvent("pickle_heists:updatePlayerPercentages", function(lobbyId, playerPercentages)
+    if not CurrentLobby or CurrentLobby.id ~= lobbyId then return end
+    for k,v in pairs(CurrentLobby.players) do
+        if playerPercentages[v.source] then
+            v.percentage = playerPercentages[v.source]
+        end
+    end
+    SendNUIMessage({
+        type = "setLobby",
+        lobby = CurrentLobby,
+    })
+end)
+
+RegisterNetEvent("pickle_heists:startHeist", function(lobbyId, lobbyOptions)
+    if not CurrentLobby or CurrentLobby.id ~= lobbyId then return end
+    SetNuiFocus(false, false)
+    SendNUIMessage({
+        type = "setLobby",
+        lobby = nil,
+    })
+    DoScreenFadeOut(2000)
+    Wait(2050)
+    for k,v in pairs(CurrentLobby.playerPositions or {}) do
+        DeleteEntity(v.ped)
+        DeleteEntity(v.obj)
+    end
+    CurrentLobby = nil
+end)
+
+RegisterNetEvent("pickle_heists:heistStarted", function(heistId)
+    local heistCfg = Config.Heists[heistId]
+    FreezeEntityPosition(PlayerPedId(), false)
+    Wait(50)
+    DoScreenFadeIn(1000)
 end)
 
 RegisterNUICallback("setSection", function(sectionId, cb)
@@ -250,13 +407,46 @@ end)
 
 RegisterNUICallback("setVehicleColor", function(color, cb)
     if not CurrentLobby.vehicle then return end
+    CurrentLobby.vehicleColor = color
     SetVehicleCustomPrimaryColour(CurrentLobby.vehicle, color.r, color.g, color.b)
     SetVehicleCustomSecondaryColour(CurrentLobby.vehicle, color.r, color.g, color.b)
     cb("ok")
 end)
 
 RegisterNUICallback("updatePlayerPercentages", function(data, cb)
-    TriggerServerEvent("pickle_heists:updatePlayerPercentages", data)
+    local percentages = {}
+    for k, v in pairs(data) do
+        percentages[v.source] = v.percentage or 0
+    end
+    TriggerServerEvent("pickle_heists:updatePlayerPercentages", percentages)
+    cb("ok")
+end)
+
+RegisterNUICallback("startHeist", function(data, cb)
+    TriggerServerEvent("pickle_heists:startHeist", {
+        vehicle = CurrentLobby.currentVehicle,
+        vehicleColor = CurrentLobby.vehicleColor,
+    })
+    cb("ok")
+end)
+
+RegisterNUICallback("leaveHeist", function(data, cb)
+    SetNuiFocus(false, false)
+    SendNUIMessage({
+        type = "setLobby",
+        lobby = nil,
+    })
+    TriggerServerEvent("pickle_heists:leaveLobby")
+    cb("ok")
+end)
+
+RegisterNUICallback("kickPlayer", function(data, cb)
+    TriggerServerEvent("pickle_heists:kickPlayer", data)
+    cb("ok")
+end)
+
+RegisterNUICallback("promotePlayer", function(data, cb)
+    TriggerServerEvent("pickle_heists:promotePlayer", data)
     cb("ok")
 end)
 
@@ -268,6 +458,7 @@ AddEventHandler("onResourceStop", function(resource)
             end
             for k,v in pairs(CurrentLobby.playerPositions or {}) do
                 DeleteEntity(v.ped)
+                DeleteEntity(v.obj)
             end
         end
         CurrentLobby = nil

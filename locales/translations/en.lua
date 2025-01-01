@@ -12,4 +12,5 @@ Language["en"] = {
     heist_kick = "Kick Player",
     heist_promote = "Promote to Heist Leader",
     must_be_leader = "You must be the leader to do this.",
+    heist_already_started = "This heist is already in-progress.",
 }

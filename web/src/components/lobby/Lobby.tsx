@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Player, Position } from "../../App";
-import { HeistInfo } from "../heists/Heists";
+import { Heist } from "../heists/Heists";
 import { Button, Flex, Slider, Text } from "@mantine/core";
 import { useLocale } from "../../providers/locale/Locale";
 import { useConfig } from "../../providers/config/Config";
@@ -18,7 +18,7 @@ export type LobbyPlayer = Player & {
 export type Lobby = {
     id: number;
     isLeader?: boolean;
-    heistInfo: HeistInfo;
+    heistInfo: Heist;
     players: Record<string, LobbyPlayer>;
     vehicles: Vehicle[];
 }

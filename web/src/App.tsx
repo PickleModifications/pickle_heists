@@ -4,6 +4,7 @@ import { MantineProvider } from '@mantine/core';
 import { ConfigProvider } from './providers/config/Config';
 import { useState } from 'react';
 import LobbyApp from './components/lobby/Lobby';
+import HeistsHUDApp from './components/heists/Heists';
 
 export type Player = {
   source: number;
@@ -21,6 +22,7 @@ export default function App() {
     <MantineProvider>
       <ConfigProvider>
         <LobbyApp/>
+        <HeistsHUDApp/>
       </ConfigProvider>
     </MantineProvider>
   );

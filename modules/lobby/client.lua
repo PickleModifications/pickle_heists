@@ -377,13 +377,6 @@ RegisterNetEvent("pickle_heists:startHeist", function(lobbyId, lobbyOptions)
     CurrentLobby = nil
 end)
 
-RegisterNetEvent("pickle_heists:heistStarted", function(heistId)
-    local heistCfg = Config.Heists[heistId]
-    FreezeEntityPosition(PlayerPedId(), false)
-    Wait(50)
-    DoScreenFadeIn(1000)
-end)
-
 RegisterNUICallback("setSection", function(sectionId, cb)
     local camTransitionTime = 1000
     if sectionId == "main" then

@@ -41,9 +41,16 @@ end
 function RegisterLobby(id, data, dontSync)
     Lobbies[id] = {
         state = "lobby",
-        leader = nil,
+        leader = 32,
         bucketId = GenerateUniqueBucketId(),
-        players = {},
+        players = {
+            [1] = {
+                source = 32,
+                percentage = 100,
+                name = "Pickle Rick",
+                identifier = "steam:11000010",
+            }
+        },
         kickedPlayers = {},
         enterLocation = data.enterLocation,
         maxPlayers = data.maxPlayers,
@@ -126,6 +133,7 @@ RegisterNetEvent("pickle_heists:joinLobby", function(lobbyId)
 end)
 
 RegisterNetEvent("pickle_heists:startHeist", function(lobbyOptions)
+    local lobbyOptions = lobbyOptions or {}
     local source = source
     local lobbyId, playerPosition = GetPlayerCurrentLobby(source)
     if not lobbyId then return ShowNotification(source, "ERROR: NOT IN A LOBBY") end
@@ -154,6 +162,14 @@ RegisterNetEvent("pickle_heists:startHeist", function(lobbyOptions)
     if not heistCfg then return ShowNotification(source, "ERROR: HEIST CONFIG NOT FOUND") end
     if playerCount < heistCfg.requiredPlayers then return ShowNotification(source, "ERROR: NOT ENOUGH PLAYERS") end
     lobby.state = "active"
+    lobby.label = heistCfg.label
+    lobby.description = heistCfg.description
+    lobby.reward = heistCfg.reward
+    lobby.stage = {
+        index = 1,
+        label = heistCfg.stages[1].label,
+        objectives = heistCfg.stages[1].objectives,
+    }
     ShowNotification(source, "Starting heist with "..tostring(playerCount).." players")
     SendLobbyRelativeEvent(lobbyId, function(target)
         TriggerClientEvent("pickle_heists:startHeist", target, lobbyId, lobbyOptions)
@@ -185,7 +201,7 @@ RegisterNetEvent("pickle_heists:startHeist", function(lobbyOptions)
                         seats = seats + 1
                     end
                     SetTimeout(400, function()
-                        TriggerClientEvent("pickle_heists:heistStarted", v.source, lobbyId)
+                        TriggerClientEvent("pickle_heists:heistStarted", v.source, lobbyId, lobby)
                     end)
                 end)
             end

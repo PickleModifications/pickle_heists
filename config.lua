@@ -14,6 +14,8 @@ Config.NoModelTargeting = true -- When set to true and using Target, it'll spawn
 
 Config.InventoryLimit = false -- If using ESX 1.1, this must be on if using a limit-based inventory.
 
+Config.DefaultPosition = { x = 10, y = 540 } -- Default position for the HUD.
+
 Config.LobbyScene = {
     camera = {
         coords = vector3(405.001, -967.5947, -99.0042),
@@ -54,5 +56,30 @@ Config.Heists = {
         },
         enterLocation = { coords = vector3(450.0584, -752.6832, 26.3578), heading = 267.0975 },
         vehicleLocation = { coords = vector3(475.0798, -822.3256, 26.0780), heading = 90.6259 },
+        stages = {
+            {
+                label = "Stage One: Go to the bank",
+                objectives = {
+                    {
+                        label = "Arrive at the bank",
+                        description = "Check the map for the location of the bank and drive there.",
+                        component = {type = "insideArea", params = {position = vector3(454.0552, -752.6476, 27.3578), distance = 2.0}},
+                        completed = false
+                    },
+                    {
+                        label = "Arrive at the bank 2",
+                        description = "Check the map for the location of the bank and drive there.",
+                        component = {type = "insideArea", params = {position = vector3(457.7864, -752.5822, 27.3578), distance = 2.0}},
+                        completed = false
+                    },
+                }
+            }
+        }
     },
+}
+
+-- Don't touch the below unless you are a top-tier developer.
+
+Config.Components = {
+    "insideArea",
 }

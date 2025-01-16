@@ -5,6 +5,7 @@ import { ConfigProvider } from './providers/config/Config';
 import { useState } from 'react';
 import LobbyApp from './components/lobby/Lobby';
 import HeistsHUDApp from './components/heists/Heists';
+import LootApp from './components/loot/Loot';
 
 export type Player = {
   source: number;
@@ -21,6 +22,7 @@ export default function App() {
   return (
     <MantineProvider>
       <ConfigProvider>
+        <LootApp/>
         <LobbyApp/>
         <HeistsHUDApp/>
       </ConfigProvider>
